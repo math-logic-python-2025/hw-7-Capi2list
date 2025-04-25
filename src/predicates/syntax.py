@@ -54,7 +54,7 @@ def is_constant(string: str) -> bool:
         ``True`` if the given string is a constant name, ``False`` otherwise.
     """
     return (
-        ((string[0] >= "0" and string[0] <= "9") or (string[0] >= "a" and string[0] <= "e")) and string.isalnum()
+            ((string[0] >= "0" and string[0] <= "9") or (string[0] >= "a" and string[0] <= "e")) and string.isalnum()
     ) or string == "_"
 
 
@@ -118,11 +118,18 @@ class Term:
 
     @memoized_parameterless_method
     def __repr__(self) -> str:
-        """Computes the string representation of the current term.
+        if is_constant(self.root) or is_variable(self.root):
+            return str(self.root)
+        else:
+            result = str(self.root) + "("
+            for i in range(len(self.arguments)):
+                if i != len(self.arguments) - 1:
+                    result += str(self.arguments[i]) + ","
+                else:
+                    result += str(self.arguments[i])
+            result += ')'
+            return result
 
-        Returns:
-            The standard string representation of the current term.
-        """
         # Task 7.1
 
     def __eq__(self, other: object) -> bool:
@@ -166,50 +173,79 @@ class Term:
             or a variable name (e.g., ``'x12'``), then the parsed prefix will be
             that entire name (and not just a part of it, such as ``'x1'``).
         """
+
+        for i in range(len(string), 0, -1):
+            if is_constant(string[:i]):
+                return tuple([Term(string[:i]), string[i:]])
+            if is_variable(string[:i]):
+                return tuple([Term(string[:i]), string[i:]])
+            if is_function(string[:i]):
+                if i < len(string) and string[i] == '(':
+                    current = i + 1
+                    arguments = []
+                    while current < len(string):
+                        arg, st = Term._parse_prefix(string[current:])
+                        if arg is None:
+                            return tuple([None, string])
+                        arguments.append(arg)
+                        current = len(string) - len(st)
+                        if current < len(string) and (string[current] == ',' or string[current] == ')'):
+                            if string[current] == ',':
+                                current += 1
+                                continue
+                            if string[current] == ')':
+                                return tuple([Term(string[:i], arguments), string[current+1:]])
+                        else:
+                            return tuple([None, string])
+
+                else:
+                    return tuple([None, string])
+        return tuple([None, string])
+
+
         # Task 7.3a
 
     @staticmethod
     def parse(string: str) -> Term:
-        """Parses the given valid string representation into a term.
-
-        Parameters:
-            string: string to parse.
-
-        Returns:
-            A term whose standard string representation is the given string.
-        """
+        return Term._parse_prefix(string)[0]
         # Task 7.3b
 
     def constants(self) -> Set[str]:
-        """Finds all constant names in the current term.
-
-        Returns:
-            A set of all constant names used in the current term.
-        """
+        if is_constant(self.root):
+            return {self.root}
+        if is_function(self.root):
+            result = set()
+            for i in self.arguments:
+                result = result.union(i.constants())
+            return result
+        return set()
         # Task 7.5a
 
     def variables(self) -> Set[str]:
-        """Finds all variable names in the current term.
-
-        Returns:
-            A set of all variable names used in the current term.
-        """
+        if is_variable(self.root):
+            return {self.root}
+        if is_function(self.root):
+            result = set()
+            for i in self.arguments:
+                result = result.union(i.variables())
+            return result
+        return set()
         # Task 7.5b
 
     def functions(self) -> Set[Tuple[str, int]]:
-        """Finds all function names in the current term, along with their
-        arities.
-
-        Returns:
-            A set of pairs of function name and arity (number of arguments) for
-            all function names used in the current term.
-        """
+        if is_function(self.root):
+            result = set()
+            result.add(tuple([self.root, len(self.arguments)]))
+            for i in self.arguments:
+                result = result.union(i.functions())
+            return result
+        return set()
         # Task 7.5c
 
     def substitute(
-        self,
-        substitution_map: Mapping[str, Term],
-        forbidden_variables: AbstractSet[str] = frozenset(),
+            self,
+            substitution_map: Mapping[str, Term],
+            forbidden_variables: AbstractSet[str] = frozenset(),
     ) -> Term:
         """Substitutes in the current term, each constant name `construct` or
         variable name `construct` that is a key in `substitution_map` with the
@@ -347,10 +383,10 @@ class Formula:
     statement: Optional[Formula]
 
     def __init__(
-        self,
-        root: str,
-        arguments_or_first_or_variable: Union[Sequence[Term], Formula, str],
-        second_or_statement: Optional[Formula] = None,
+            self,
+            root: str,
+            arguments_or_first_or_variable: Union[Sequence[Term], Formula, str],
+            second_or_statement: Optional[Formula] = None,
     ):
         """Initializes a `Formula` from its root and root arguments, root
         operands, or root quantified variable name and statement.
@@ -402,11 +438,23 @@ class Formula:
 
     @memoized_parameterless_method
     def __repr__(self) -> str:
-        """Computes the string representation of the current formula.
-
-        Returns:
-            The standard string representation of the current formula.
-        """
+        if is_equality(self.root):
+            return str(self.arguments[0]) + '=' +str(self.arguments[1])
+        if is_relation(self.root):
+            result = str(self.root) + "("
+            for i in range(len(self.arguments)):
+                if i != len(self.arguments) - 1:
+                    result += str(self.arguments[i]) + ","
+                else:
+                    result += str(self.arguments[i])
+            result += ')'
+            return result
+        if is_unary(self.root):
+            return self.root + str(self.first)
+        if is_binary(self.root):
+            return "(" + str(self.first) + self.root + str(self.second) + ")"
+        if is_quantifier(self.root):
+            return self.root + self.variable + '[' + str(self.statement) + ']'
         # Task 7.2
 
     def __eq__(self, other: object) -> bool:
@@ -451,19 +499,80 @@ class Formula:
             name (e.g., ``'f(y)=x12'``), then the parsed prefix will include
             that entire name (and not just a part of it, such as ``'f(y)=x1'``).
         """
+
+        if Term._parse_prefix(string)[0] != None:
+            T, sx = Term._parse_prefix(string)
+            if sx[0] != '=':
+                return tuple([None, string])
+            T1, sx1 = Term._parse_prefix(sx[1:])
+            return tuple([Formula('=', [T, T1]), sx1])
+        for i in range(len(string), 0, -1):
+            if is_unary(string[:i]):
+                T, sx = Formula._parse_prefix(string[i:])
+                if T is None:
+                    return tuple([None, string])
+                else:
+                    return tuple([Formula(string[:i], T), sx])
+            if is_quantifier(string[:i]):
+                ff = -1
+                for j in range(i, len(string)):
+                    if string[j] == '[':
+                        ff = j
+                        break
+                if ff == -1:
+                    return tuple([None, string])
+                if is_variable(string[i:ff]):
+                    T, sx = Formula._parse_prefix(string[ff+1:])
+                    if sx[0] == ']':
+                        return tuple([Formula(string[:i], string[i:ff], T), sx[1:]])
+                    else:
+                        return tuple([None, string])
+                else:
+                    return tuple([None, string])
+            if is_relation(string[:i]):
+                if i < len(string) and string[i] == '(':
+                    current = i + 1
+                    arguments = []
+                    if i + 1 < len(string) and string[i + 1] == ')':
+                        return tuple([Formula(string[:i], []), string[i + 2:]])
+                    while current < len(string):
+                        arg, st = Term._parse_prefix(string[current:])
+                        if arg is None:
+                            return tuple([None, string])
+                        arguments.append(arg)
+                        current = len(string) - len(st)
+                        if current < len(string) and (string[current] == ',' or string[current] == ')'):
+                            if string[current] == ',':
+                                current += 1
+                                continue
+                            if string[current] == ')':
+                                return tuple([Formula(string[:i], arguments), string[current+1:]])
+                        else:
+                            return tuple([None, string])
+
+                else:
+                    return tuple([None, string])
+        if string[0] == '(':
+            T, sx = Formula._parse_prefix(string[1:])
+            if T is None:
+                return tuple([None, string])
+            for i in range(len(sx)):
+                if is_binary(sx[:i]):
+                    T1, sx1 = Formula._parse_prefix(sx[i:])
+                    if T1 is None or len(sx1) == 0:
+                        return tuple([None, string])
+                    if sx1[0] != ')':
+                        return tuple([None, string])
+                    return tuple([Formula(sx[:i], T, T1), sx1[1:]])
+            return tuple([None, string])
+        else:
+            return tuple([None, string])
+
         # Task 7.4a
 
     @staticmethod
     def parse(string: str) -> Formula:
-        """Parses the given valid string representation into a formula.
-
-        Parameters:
-            string: string to parse.
-
-        Returns:
-            A formula whose standard string representation is the given string.
-        """
-        # Task 7.4b
+        return Formula._parse_prefix(string)[0]
 
     def constants(self) -> Set[str]:
         """Finds all constant names in the current formula.
@@ -511,9 +620,9 @@ class Formula:
         # Task 7.6e
 
     def substitute(
-        self,
-        substitution_map: Mapping[str, Term],
-        forbidden_variables: AbstractSet[str] = frozenset(),
+            self,
+            substitution_map: Mapping[str, Term],
+            forbidden_variables: AbstractSet[str] = frozenset(),
     ) -> Formula:
         """Substitutes in the current formula, each constant name `construct` or
         free occurrence of variable name `construct` that is a key in
@@ -563,7 +672,7 @@ class Formula:
         # Task 9.2
 
     def propositional_skeleton(
-        self,
+            self,
     ) -> Tuple[PropositionalFormula, Mapping[str, Formula]]:
         """Computes a propositional skeleton of the current formula.
 
